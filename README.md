@@ -17,6 +17,35 @@ An object that is responsible to provide a public interface for peripheral conne
 
 The bluetooth stack will report events via publishers.
 
+## Using BluetoothStack
+
+When entering a flow that uses the stack, initialize and maintain a reference to the stack instance.
+
+In general the following steps are required when interacting with the stack:
+
+1. When ready to start interacting with the bluetooth system call: `initializeSession(with:)` method to start a bluetooth session. Calling this method will cause iOS to prompt the user with any prompts and additionally any configured prompts.
+2. Monitor `systemStatusPublisher` for the system status
+
+```
+Initialize Stack ---------> Application UI
+|                           |
+|                           |
+|                           v
+|                           When Ready
+|                           |
+|                           |
+|                           v
+|                           Initialize Session
+|
+v
+Monitor system ready publisher
+|
+|
+|
+|
+v
+```
+
 ## Understanding System Status
 
 Responding to system status can be handled via the `systemReadyPublisher` on `BluetoothStack` object. The system ready publisher will report a `Bool` type to indicate if the system is ready for use.
