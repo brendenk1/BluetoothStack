@@ -9,6 +9,10 @@ import Foundation
  When initializing a `CBCentralManager` object, the system can display an alert to the user if the radio is powered off.
  */
 public struct SessionConfiguration {
+    public init(showPowerAlertIfNeeded: Bool) {
+        self.showPowerAlertIfNeeded = showPowerAlertIfNeeded
+    }
+    
     /// A flag to indicate if the system should display an alert if the radio is powered off
     let showPowerAlertIfNeeded: Bool
     

@@ -11,14 +11,22 @@ public final class BluetoothStack {
         configureFormattingForManagers()
     }
     
+    public typealias WhenError = (Error) -> Void
     public typealias SystemReady = Bool
     public typealias SystemReadyTroubleshooting = (systemState: CBManagerState?, authorizationState: CBManagerAuthorization)
+    public typealias SystemScanning = Bool
+    
+    fileprivate typealias Registry = Array<StackRegister>
     
     private var centralSession: BluetoothCentralSession?
     
     // Kernels
     private let systemState: Kernel<CBManagerState> = Kernel()
+    private let systemRegister: Kernel<Registry> = Kernel()
+    
+    // Managers
     private let systemReady: Manager<SystemReady> = Manager()
+    private let systemScanning: Manager<SystemScanning> = Manager()
     
     // Actions
     fileprivate func onStateChange(_ state: CBManagerState) {
@@ -29,13 +37,29 @@ public final class BluetoothStack {
     
     // Formatted Values
     private func configureFormattingForManagers() {
-        let systemReadySource = systemState
-            .whenValueUpdates()
-            .formatUsing(BluetoothStack.systemReadyFormat)
-            .map { Optional<SystemReady>($0) }
-            .eraseToAnyPublisher()
-        
-        systemReady.whenFormattedValueReceived(from: systemReadySource)
+        BluetoothStack.formatForSystemReady(basedOn: systemState, toManager: systemReady)
+        BluetoothStack.formatForSystemScanning(basedOn: systemRegister, toManager: systemScanning)
+    }
+    
+    // Helpers
+    fileprivate func verifySystemState() throws {
+        if (systemState.currentValue == .poweredOn) == false {
+            throw StackError.systemNotReady
+        }
+    }
+    
+    fileprivate func checkRegistry(forInstructionInProgress instruction: StackRegister.Instruction) throws {
+        if systemRegister.currentValue?.contains(where: { $0.instruction == instruction }) == true {
+            throw StackError.instructionAlreadyInProgress
+        }
+    }
+    
+    fileprivate func insertInRegistry(_ item: StackRegister) {
+        var registry = systemRegister.currentValue
+        registry?.append(item)
+        Action(connector: SetValueConnection(value: registry),
+               kernel: systemRegister)
+            .execute()
     }
 }
 
@@ -47,6 +71,8 @@ extension Bool: Identifiable {
 }
 
 extension BluetoothStack {
+    // MARK: System Ready State
+    
     /// A publisher that will emit `SystemReady` values
     ///
     /// This publisher is guaranteed to emit on the `Main` thread
@@ -67,6 +93,30 @@ extension BluetoothStack {
     /// The `CBManagerState` will be reported as `nil` until the session is initialized
     public func troubleshootSystemReady() -> SystemReadyTroubleshooting {
         (systemState.currentValue, CBManager.authorization)
+    }
+    
+    // MARK: System Scanning
+    
+    /// A publisher that will emit `SystemScanning` values
+    ///
+    /// This publisher is guaranteed to emit on the `Main` thread
+    public var systemScanningPublisher: AnyPublisher<SystemScanning, Never> {
+        systemScanning
+            .$value
+            .replaceNil(with: false)
+            .eraseToAnyPublisher()
+    }
+    
+    /// A method to start scanning for peripherals
+    public func startScanning(for configuration: ScanConfiguration, onError: @escaping WhenError) {
+        do {
+            try verifySystemState()
+            try checkRegistry(forInstructionInProgress: .scanning)
+            insertInRegistry(.scanningRegister)
+            centralSession?.startScanning(for: configuration)
+        } catch {
+            onError(error)
+        }
     }
 }
 
@@ -93,5 +143,33 @@ extension BluetoothStack {
         state == .poweredOn
     }
     
-    static var systemReadyFormat = Format(format: systemReady)
+    fileprivate static var systemReadyFormat = Format(format: systemReady)
+    
+    fileprivate static func formatForSystemReady(basedOn stateKernel: Kernel<CBManagerState>, toManager manager: Manager<SystemReady>) {
+        let systemReadySource = stateKernel
+            .whenValueUpdates()
+            .formatUsing(BluetoothStack.systemReadyFormat)
+            .map { Optional<SystemReady>($0) }
+            .eraseToAnyPublisher()
+        
+        manager.whenFormattedValueReceived(from: systemReadySource)
+    }
+}
+
+extension BluetoothStack {
+    private static func systemScanning(from registry: [StackRegister]?) -> SystemScanning {
+        registry?.contains(where: { $0.instruction == .scanning }) == true
+    }
+    
+    fileprivate static var systemScanningFormat = Format(format: systemScanning)
+    
+    fileprivate static func formatForSystemScanning(basedOn registryKernel: Kernel<Registry>, toManager manager: Manager<SystemScanning>) {
+        let systemScanningSource = registryKernel
+            .whenValueUpdates()
+            .formatUsing(BluetoothStack.systemScanningFormat)
+            .map { Optional<SystemScanning>($0) }
+            .eraseToAnyPublisher()
+        
+        manager.whenFormattedValueReceived(from: systemScanningSource)
+    }
 }

@@ -8,6 +8,7 @@ The goals of this system is:
 
 * Provide a Combine interface for Bluetooth system status & authorization states
 * Provide a simplified interface to troubleshoot the system
+* Provide a simplified interface to scan for peripherals with simplified error reporting
 
 ## Components
 
@@ -25,6 +26,8 @@ In general the following steps are required when interacting with the stack:
 
 1. When ready to start interacting with the bluetooth system call: `initializeSession(with:)` method to start a bluetooth session. Calling this method will cause iOS to prompt the user with any prompts and additionally any configured prompts.
 2. Monitor `systemStatusPublisher` for the system status
+3. Perform `startScanning(for: onError:)` to scan for peripherals advertising nearby.
+4. Monitor `systemScanningPublisher` for the scan status
 
 ```
 Initialize Stack ---------> Application UI
@@ -36,11 +39,17 @@ Initialize Stack ---------> Application UI
 |                           |
 |                           v
 |                           Initialize Session
+|                           |
+|                           |
+|                           v
+|                           Start Scan
 |
 v
 Monitor system ready publisher
 |
 |
+|
+Monitor system scanning publisher
 |
 |
 v
@@ -90,3 +99,30 @@ let authorizationState = telemetry.authorizationState
 ```
 
 These values are preserved types from `CoreBluetooth` and give granular data on why the system may not be ready for use. Users can use this information to present custom UI as needed.
+
+## Understanding System Scanning
+
+Responding to system scanning can be handled via the `systemScanningPublisher` on `BluetoothStack` object. They system scanning publisher will report a `Bool` type to indicate if the system is actively scanning for peripherals.
+
+```
+let state = BluetoothStack()
+
+/// observe state
+stack
+    .systemScanningPublisher
+    .sink { systemScanning in 
+        // systemScanning is a `Bool` value to indicate activity
+    }
+}
+```
+
+### Starting a scan
+
+Starting a scan can be accomplished by the following method on `BluetoothStack`, `startScanning(for: onError:)`. 
+
+When scanning errors can be thrown for the following reasons:
+
+1. the system is not in a ready state (see system status for more information)
+2. the system is already scanning
+
+When starting to scan for peripherals, the method requires a `ScanConfiguration` object. This informs the system what devices the application is interested in finding, and how that device should be reported to the application.

@@ -14,6 +14,12 @@ final class BluetoothCentralSession: NSObject {
     private let onStateChange: WhenStateChanges
 }
 
+extension BluetoothCentralSession {
+    func startScanning(for configuration: ScanConfiguration) {
+        centralManager?.scanForPeripherals(withServices: configuration.serviceIdentifiers, options: configuration.options)
+    }
+}
+
 // MARK: - CBCentralManagerDelegate
 extension BluetoothCentralSession: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
