@@ -74,8 +74,8 @@ public final class BluetoothStack: ObservableObject {
     }
     
     fileprivate func insertInRegistry(_ item: StackRegister) {
-        var registry = systemRegister.currentValue
-        registry?.append(item)
+        var registry = systemRegister.currentValue ?? []
+        registry.append(item)
         Action(connector: SetValueConnection(value: registry),
                kernel: systemRegister)
             .execute()
