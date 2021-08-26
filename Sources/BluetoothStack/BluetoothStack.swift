@@ -15,7 +15,9 @@ public final class BluetoothStack {
     public typealias SystemReady = Bool
     public typealias SystemReadyTroubleshooting = (systemState: CBManagerState?, authorizationState: CBManagerAuthorization)
     public typealias SystemScanning = Bool
+    public typealias AvailablePeripherals = Array<DiscoveredPeripheral>
     
+    fileprivate typealias DiscoveredPeripherals = Set<DiscoveredPeripheral>
     fileprivate typealias Registry = Array<StackRegister>
     
     private var centralSession: BluetoothCentralSession?
@@ -23,10 +25,12 @@ public final class BluetoothStack {
     // Kernels
     private let systemState: Kernel<CBManagerState> = Kernel()
     private let systemRegister: Kernel<Registry> = Kernel()
+    private let systemDiscoveredPeripherals: Kernel<DiscoveredPeripherals> = Kernel()
     
     // Managers
     private let systemReady: Manager<SystemReady> = Manager()
     private let systemScanning: Manager<SystemScanning> = Manager()
+    private let systemPeripherals: Manager<AvailablePeripherals> = Manager()
     
     // Actions
     fileprivate func onStateChange(_ state: CBManagerState) {
@@ -35,10 +39,19 @@ public final class BluetoothStack {
             .execute()
     }
     
+    fileprivate func onPeripheralDiscovery(_ discoveredPeripheral: DiscoveredPeripheral) {
+        var discoveredPeripherals = systemDiscoveredPeripherals.currentValue ?? Set()
+        discoveredPeripherals.update(with: discoveredPeripheral)
+        Action(connector: SetValueConnection(value: discoveredPeripherals),
+               kernel: systemDiscoveredPeripherals)
+            .execute()
+    }
+    
     // Formatted Values
     private func configureFormattingForManagers() {
         BluetoothStack.formatForSystemReady(basedOn: systemState, toManager: systemReady)
         BluetoothStack.formatForSystemScanning(basedOn: systemRegister, toManager: systemScanning)
+        BluetoothStack.formatForDiscoveredPeripherals(basedOn: systemDiscoveredPeripherals, toManager: systemPeripherals)
     }
     
     // Helpers
@@ -101,7 +114,8 @@ extension BluetoothStack {
     /// A method that is used to initialize a `Bluetooth` session
     public func initializeSession(with configuration: SessionConfiguration) {
         centralSession = BluetoothCentralSession(with: configuration,
-                                                 onStateChange: { [weak self] state in self?.onStateChange(state) })
+                                                 onStateChange: { [weak self] state in self?.onStateChange(state) },
+                                                 onPeripheralDiscovered: { [weak self] discoveredPeripheral in self?.onPeripheralDiscovery(discoveredPeripheral) })
     }
     
     /// A function to troubleshoot if a system is not `ready`
@@ -144,6 +158,18 @@ extension BluetoothStack {
         } catch {
             onError(error)
         }
+    }
+    
+    // MARK: Available Peripherals
+    
+    /// A publisher that will emit `AvailablePeripherals` values sorted by RSSI values 
+    ///
+    /// This publisher is guaranteed to emit on the `Main` thread
+    public var availablePeripheralPublisher: AnyPublisher<AvailablePeripherals, Never> {
+        systemPeripherals
+            .$value
+            .replaceNil(with: [])
+            .eraseToAnyPublisher()
     }
 }
 
@@ -198,5 +224,24 @@ extension BluetoothStack {
             .eraseToAnyPublisher()
         
         manager.whenFormattedValueReceived(from: systemScanningSource)
+    }
+}
+
+extension BluetoothStack {
+    private static func discoveredPeripherals(_ peripherals: DiscoveredPeripherals?) -> AvailablePeripherals {
+        let items = peripherals ?? []
+        return items.sorted().reversed()
+    }
+    
+    fileprivate static var discoveredPeripheralsFormat = Format(format: discoveredPeripherals)
+    
+    fileprivate static func formatForDiscoveredPeripherals(basedOn discoveryKernel: Kernel<DiscoveredPeripherals>, toManager manager: Manager<AvailablePeripherals>) {
+        let peripheralSource = discoveryKernel
+            .whenValueUpdates()
+            .formatUsing(discoveredPeripheralsFormat)
+            .map { Optional<AvailablePeripherals>($0) }
+            .eraseToAnyPublisher()
+        
+        manager.whenFormattedValueReceived(from: peripheralSource)
     }
 }

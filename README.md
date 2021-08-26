@@ -9,6 +9,7 @@ The goals of this system is:
 * Provide a Combine interface for Bluetooth system status & authorization states
 * Provide a simplified interface to troubleshoot the system
 * Provide a simplified interface to scan for peripherals with simplified error reporting
+* Provide a Combine interface for available peripherals to connect to
 
 ## Components
 
@@ -28,6 +29,8 @@ In general the following steps are required when interacting with the stack:
 2. Monitor `systemStatusPublisher` for the system status
 3. Perform `startScanning(for: onError:)` to scan for peripherals advertising nearby.
 4. Monitor `systemScanningPublisher` for the scan status
+5. Perform `stopScanning(onError:)` to stop scanning for peripherals.
+6. Monitor `availablePeripheralPublisher` for the available peripherals discovered while scanning.
 
 ```
 Initialize Stack ---------> Application UI
@@ -43,6 +46,10 @@ Initialize Stack ---------> Application UI
 |                           |
 |                           v
 |                           Start Scan
+|                           |
+|                           |
+|                           v
+|                           Stop Scan
 |
 v
 Monitor system ready publisher
@@ -50,6 +57,10 @@ Monitor system ready publisher
 |
 |
 Monitor system scanning publisher
+|
+|
+|
+Monitor available peripheral publisher
 |
 |
 v
@@ -105,7 +116,7 @@ These values are preserved types from `CoreBluetooth` and give granular data on 
 Responding to system scanning can be handled via the `systemScanningPublisher` on `BluetoothStack` object. The system scanning publisher will report a `Bool` type to indicate if the system is actively scanning for peripherals.
 
 ```
-let state = BluetoothStack()
+let stack = BluetoothStack()
 
 /// observe state
 stack
@@ -118,7 +129,7 @@ stack
 
 ### Starting a scan
 
-Starting a scan can be accomplished by the following method on `BluetoothStack`, `startScanning(for: onError:)`. 
+Starting a scan can be accomplished by the following method on `BluetoothStack`, `startScanning(for: onError:)`.
 
 When scanning errors can be thrown for the following reasons:
 
@@ -134,3 +145,20 @@ Stopping a scan can be accomplished by the following method on `BluetoothStack`,
 Stopping a scan can throw an error for the following reasons:
 
 1. the system is not currently scanning
+
+### Available Peripherals
+
+A `availablePeripheralPublisher` is available on the `BluetoothStack` object that can be monitored.
+
+For example:
+
+```
+let stack = BluetoothStack()
+
+/// observe available peripherals
+stack
+    .availablePeripheralPublisher
+    .sink { availablePeripherals in
+        // availablePeripherals is a collection of discovered peripherals sorted by their RSSI values.
+    }
+```
