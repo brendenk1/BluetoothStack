@@ -102,7 +102,7 @@ These values are preserved types from `CoreBluetooth` and give granular data on 
 
 ## Understanding System Scanning
 
-Responding to system scanning can be handled via the `systemScanningPublisher` on `BluetoothStack` object. They system scanning publisher will report a `Bool` type to indicate if the system is actively scanning for peripherals.
+Responding to system scanning can be handled via the `systemScanningPublisher` on `BluetoothStack` object. The system scanning publisher will report a `Bool` type to indicate if the system is actively scanning for peripherals.
 
 ```
 let state = BluetoothStack()
@@ -126,3 +126,11 @@ When scanning errors can be thrown for the following reasons:
 2. the system is already scanning
 
 When starting to scan for peripherals, the method requires a `ScanConfiguration` object. This informs the system what devices the application is interested in finding, and how that device should be reported to the application.
+
+### Stopping a scan
+
+Stopping a scan can be accomplished by the following method on `BluetoothStack`, `stopScanning(onError:)`.
+
+Stopping a scan can throw an error for the following reasons:
+
+1. the system is not currently scanning

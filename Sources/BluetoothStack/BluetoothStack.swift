@@ -48,15 +48,31 @@ public final class BluetoothStack {
         }
     }
     
-    fileprivate func checkRegistry(forInstructionInProgress instruction: StackRegister.Instruction) throws {
+    fileprivate func checkRegistry(doesNotContainInstruction instruction: StackRegister.Instruction) throws {
         if systemRegister.currentValue?.contains(where: { $0.instruction == instruction }) == true {
-            throw StackError.instructionAlreadyInProgress
+            throw StackError.invalidInstruction
+        }
+    }
+    
+    fileprivate func checkRegistry(containsInstruction instruction: StackRegister.Instruction) throws {
+        if systemRegister.currentValue?.contains(where: { $0.instruction == instruction }) == false {
+            throw StackError.invalidInstruction
         }
     }
     
     fileprivate func insertInRegistry(_ item: StackRegister) {
         var registry = systemRegister.currentValue
         registry?.append(item)
+        Action(connector: SetValueConnection(value: registry),
+               kernel: systemRegister)
+            .execute()
+    }
+    
+    fileprivate func removeInRegistry(_ item: StackRegister) {
+        var registry = systemRegister.currentValue
+        if let index = registry?.firstIndex(where: { $0 == item }) {
+            registry?.remove(at: index)
+        }
         Action(connector: SetValueConnection(value: registry),
                kernel: systemRegister)
             .execute()
@@ -111,9 +127,20 @@ extension BluetoothStack {
     public func startScanning(for configuration: ScanConfiguration, onError: @escaping WhenError) {
         do {
             try verifySystemState()
-            try checkRegistry(forInstructionInProgress: .scanning)
+            try checkRegistry(doesNotContainInstruction: .scanning)
             insertInRegistry(.scanningRegister)
             centralSession?.startScanning(for: configuration)
+        } catch {
+            onError(error)
+        }
+    }
+    
+    /// A method to stop scanning for peripherals
+    public func stopScanning(onError: @escaping WhenError) {
+        do {
+            try checkRegistry(containsInstruction: .scanning)
+            centralSession?.stopScanning()
+            removeInRegistry(.scanningRegister)
         } catch {
             onError(error)
         }

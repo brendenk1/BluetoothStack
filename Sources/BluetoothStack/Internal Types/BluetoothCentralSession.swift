@@ -18,6 +18,10 @@ extension BluetoothCentralSession {
     func startScanning(for configuration: ScanConfiguration) {
         centralManager?.scanForPeripherals(withServices: configuration.serviceIdentifiers, options: configuration.options)
     }
+    
+    func stopScanning() {
+        centralManager?.stopScan()
+    }
 }
 
 // MARK: - CBCentralManagerDelegate

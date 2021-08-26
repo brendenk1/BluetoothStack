@@ -1,6 +1,6 @@
 import Foundation
 
 enum StackError: Error {
-    case instructionAlreadyInProgress
+    case invalidInstruction
     case systemNotReady
 }
