@@ -12,10 +12,10 @@ public struct DiscoveredPeripheral: Equatable, Hashable, Comparable {
         self.discoveryDate = Date()
     }
     
-    let peripheral: CBPeripheral
-    let advertisingData: [String: Any]
-    let rssi: NSNumber
-    let discoveryDate: Date
+    public let peripheral: CBPeripheral
+    public let advertisingData: [String: Any]
+    public let rssi: NSNumber
+    public let discoveryDate: Date
     
     public func hash(into hasher: inout Hasher) {
         hasher.combine(peripheral)
