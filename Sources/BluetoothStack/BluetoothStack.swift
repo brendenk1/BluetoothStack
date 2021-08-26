@@ -6,7 +6,7 @@ import Synthesis
 /// An object responsible for managing the `Bluetooth` stack
 ///
 /// Currently the stack is only designed for `Central` management and does not support background modes.
-public final class BluetoothStack {
+public final class BluetoothStack: ObservableObject {
     public init() {
         configureFormattingForManagers()
     }
