@@ -13,6 +13,7 @@ The goals of this system is:
 * Provide a Combine interface to manage connected peripherals
 * Provide a Combine interface to monitor connecting peripherals
 * Provide a simplified interface to connect to a peripheral
+* Provide a interface to disconnect / cancel connection to peripheral
 
 ## Components
 
@@ -37,6 +38,7 @@ In general the following steps are required when interacting with the stack:
 7. Perform `connectPeripheral(withConfiguration: onError:)` to connect to a given peripheral with a configuration
 8. Monitor `connectingPeripheralsPublisher` for a current list of connecting peripherals
 9. Monitor `connectedPeripheralPublisher` for a current list of connected peripherals
+10. Perform `cancelConnectionToPeripheral(: onError:)` to cancel a connection to a peripheral
 
 ```
 Initialize Stack ---------> Application UI
@@ -60,6 +62,10 @@ Initialize Stack ---------> Application UI
 |                           |
 |                           v
 |                           Connect to Peripheral
+|                           |
+|                           |
+|                           v
+|                           Cancel Connection to Peripheral
 |
 |
 v
@@ -209,3 +215,9 @@ stack
 Connecting to a peripheral is accomplished by first creating a `ConnectionConfiguration` object. This object is responsible for setting basic connection settings for a given peripheral. Then call the `connectPeripheral(withConfiguration: onError:)` method on `BluetoothStack` object. Success will be reported via the `connectedPeripheralPublisher` and an error will be reported via the `onError` parameter of the method. 
 
 Given connecting to a peripheral does not time out, errors thrown are generally transient and is best to attempt again.
+
+### Canceling Connection to a Peripheral
+
+Canceling a connection to a peripheral is accomplished by calling the `cancelConnectionToPeripheral(: onError:)` method on the `BluetoothStack` object. Success will be reported by the `connectedPeripheralPublisher` updating with a new list of currently connected peripherals, and an error will be reported via the `onError` parameter of the method.
+
+Canceling serves two important functions for a peripheral, first if a peripheral is currently pending a connection with the system this serves to stop the pending attempt, and second will disconnect the peripheral if a connection has been established. It is important to note that the iOS system manages connections to a given peripheral and not the application layer used by CoreBluetooth. Thus, canceling a connection is only from the perspective of the application layer and does not force a disconnect from the iOS system. 

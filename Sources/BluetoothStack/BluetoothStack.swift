@@ -69,6 +69,27 @@ public final class BluetoothStack: ObservableObject {
         }
     }
     
+    fileprivate func onDisconnectionEvent(_ disconnectionEvent: BluetoothCentralSession.DisconnectionEvent) {
+        switch disconnectionEvent {
+        case .success(let peripheral):
+            if let connectionRegistryItem = findAddresseeInRegistry(peripheral, forInstruction: .connecting) {
+                removeInRegistry(connectionRegistryItem)
+            }
+            if let disconnectRegistryItem = findAddresseeInRegistry(peripheral, forInstruction: .disconnecting) {
+                removeInRegistry(disconnectRegistryItem)
+            }
+        case .failure(let disconnectionError):
+            if let connectionRegistryItem = findAddresseeInRegistry(disconnectionError.peripheral, forInstruction: .connecting) {
+                removeInRegistry(connectionRegistryItem)
+                connectionRegistryItem.addressee?.onError(disconnectionError)
+            }
+            if let disconnectRegistryItem = findAddresseeInRegistry(disconnectionError.peripheral, forInstruction: .disconnecting) {
+                removeInRegistry(disconnectRegistryItem)
+                disconnectRegistryItem.addressee?.onError(disconnectionError)
+            }
+        }
+    }
+    
     // Formatted Values
     private func configureFormattingForManagers() {
         BluetoothStack.formatForSystemReady(basedOn: systemState, toManager: systemReady)
@@ -79,12 +100,15 @@ public final class BluetoothStack: ObservableObject {
     }
     
     // Helpers
+    
+    // MARK: System
     fileprivate func verifySystemState() throws {
         if (systemState.currentValue == .poweredOn) == false {
             throw StackError.systemNotReady
         }
     }
     
+    // MARK: Registry
     fileprivate func checkRegistry(doesNotContainInstruction instruction: StackRegister.Instruction) throws {
         if systemRegister.currentValue?.contains(where: { $0.instruction == instruction }) == true {
             throw StackError.invalidInstruction
@@ -126,6 +150,7 @@ public final class BluetoothStack: ObservableObject {
             .last
     }
     
+    // MARK: Connecting Peripherals
     fileprivate func addConnectingPeripheral(_ peripheral: CBPeripheral) {
         var connectingPeripherals = systemConnectingPeripherals.currentValue ?? []
         connectingPeripherals.update(with: peripheral)
@@ -142,12 +167,33 @@ public final class BluetoothStack: ObservableObject {
             .execute()
     }
     
+    fileprivate func peripheralIsInConnecting(_ peripheral: CBPeripheral) -> Bool {
+        systemConnectingPeripherals
+            .currentValue?
+            .contains(peripheral) == true
+    }
+    
+    // MARK: Connected Peripherals
     fileprivate func addConnectedPeripheral(_ peripheral: CBPeripheral) {
         var connectedPeripherals = systemConnectedPeripherals.currentValue ?? []
         connectedPeripherals.update(with: peripheral)
         Action(connector: SetValueConnection(value: connectedPeripherals),
                kernel: systemConnectedPeripherals)
             .execute()
+    }
+    
+    fileprivate func removeConnectedPeripheral(_ peripheral: CBPeripheral) {
+        var connectedPeripherals = systemConnectedPeripherals.currentValue ?? []
+        connectedPeripherals.remove(peripheral)
+        Action(connector: SetValueConnection(value: connectedPeripherals),
+               kernel: systemConnectedPeripherals)
+            .execute()
+    }
+    
+    fileprivate func peripheralIsInConnected(_ peripheral: CBPeripheral) -> Bool {
+        systemConnectedPeripherals
+            .currentValue?
+            .contains(peripheral) == true
     }
 }
 
@@ -175,7 +221,8 @@ extension BluetoothStack {
         centralSession = BluetoothCentralSession(with: configuration,
                                                  onStateChange: { [weak self] state in self?.onStateChange(state) },
                                                  onPeripheralDiscovered: { [weak self] discoveredPeripheral in self?.onPeripheralDiscovery(discoveredPeripheral) },
-                                                 onConnectionEvent: { [weak self] connectionEvent in self?.onConnectionEvent(connectionEvent) })
+                                                 onConnectionEvent: { [weak self] connectionEvent in self?.onConnectionEvent(connectionEvent) },
+                                                 onDisconnectEvent: { [weak self] disconnectEvent in self?.onDisconnectionEvent(disconnectEvent) })
     }
     
     /// A function to troubleshoot if a system is not `ready`
@@ -259,6 +306,24 @@ extension BluetoothStack {
         addConnectingPeripheral(configuration.peripheral)
         insertInRegistry(register)
         centralSession?.connectToPeripheral(connectionConfiguration: configuration)
+    }
+    
+    /// A method that allows for the canceling of a connection to a given peripheral
+    public func cancelConnectionToPeripheral(_ peripheral: CBPeripheral, onError: @escaping (Error) -> Void) {
+        let disconnectRegistryEntry = StackRegister.disconnectingRegister(forPeripheral: peripheral, onError: onError)
+        if peripheralIsInConnecting(peripheral) {
+            removeConnectingPeripheral(peripheral)
+            insertInRegistry(disconnectRegistryEntry)
+            centralSession?.cancelConnection(toPeripheral: peripheral)
+        }
+        else if peripheralIsInConnected(peripheral) {
+            removeConnectedPeripheral(peripheral)
+            insertInRegistry(disconnectRegistryEntry)
+            centralSession?.cancelConnection(toPeripheral: peripheral)
+        }
+        else {
+            onError(StackError.unknownDevice)
+        }
     }
 }
 

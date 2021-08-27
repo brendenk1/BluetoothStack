@@ -8,6 +8,7 @@ struct StackRegister: Equatable {
     enum Instruction {
         case scanning
         case connecting
+        case disconnecting
     }
     
     struct Addressee: Equatable {
@@ -34,5 +35,9 @@ extension StackRegister {
     
     static func connectingRegister(forPeripheral peripheral: CBPeripheral, onError: @escaping (Error) -> Void) -> StackRegister {
         StackRegister(instruction: .connecting, addressee: Addressee(peripheral: peripheral, onError: onError))
+    }
+    
+    static func disconnectingRegister(forPeripheral peripheral: CBPeripheral, onError: @escaping (Error) -> Void) -> StackRegister {
+        StackRegister(instruction: .disconnecting, addressee: Addressee(peripheral: peripheral, onError: onError))
     }
 }
