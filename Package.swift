@@ -25,9 +25,6 @@ let package = Package(
             name: "BluetoothStack",
             dependencies: [
                 "Synthesis"
-            ]),
-        .testTarget(
-            name: "BluetoothStackTests",
-            dependencies: ["BluetoothStack"]),
+            ])
     ]
 )
