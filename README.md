@@ -206,6 +206,6 @@ stack
 
 ### Connecting to a Peripheral
 
-Connecting to a peripheral is accomplished by first creating a `ConnectionConfiguration` object. This object is responsible for setting basic connection settings for a given peripheral. The call the `connectPeripheral(withConfiguration: onError:)` method on `BluetoothStack` object. Success will be reported via the `connectedPeripheralPublisher` and an error will be reported via the `onError` parameter of the method. 
+Connecting to a peripheral is accomplished by first creating a `ConnectionConfiguration` object. This object is responsible for setting basic connection settings for a given peripheral. Then call the `connectPeripheral(withConfiguration: onError:)` method on `BluetoothStack` object. Success will be reported via the `connectedPeripheralPublisher` and an error will be reported via the `onError` parameter of the method. 
 
 Given connecting to a peripheral does not time out, errors thrown are generally transient and is best to attempt again.
