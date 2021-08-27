@@ -106,7 +106,7 @@ The output of the publisher is defined as follows:
 +-
 |
 | poweredOff
-| poweredOn                                               
+| poweredOn
 | resetting      --------> CentralManagerState  --------> isPoweredOn -------> SystemReady
 | unauthorized
 | unknown
