@@ -16,8 +16,10 @@ public final class BluetoothStack: ObservableObject {
     public typealias SystemReadyTroubleshooting = (systemState: CBManagerState?, authorizationState: CBManagerAuthorization)
     public typealias SystemScanning = Bool
     public typealias AvailablePeripherals = Array<DiscoveredPeripheral>
+    public typealias ConnectedPeripherals = Array<CBPeripheral>
     
     fileprivate typealias DiscoveredPeripherals = Set<DiscoveredPeripheral>
+    fileprivate typealias ConnectedSystemPeripherals = Set<CBPeripheral>
     fileprivate typealias Registry = Array<StackRegister>
     
     private var centralSession: BluetoothCentralSession?
@@ -26,11 +28,15 @@ public final class BluetoothStack: ObservableObject {
     private let systemState: Kernel<CBManagerState> = Kernel()
     private let systemRegister: Kernel<Registry> = Kernel()
     private let systemDiscoveredPeripherals: Kernel<DiscoveredPeripherals> = Kernel()
+    private let systemConnectingPeripherals: Kernel<ConnectedSystemPeripherals> = Kernel()
+    private let systemConnectedPeripherals: Kernel<ConnectedSystemPeripherals> = Kernel()
     
     // Managers
     private let systemReady: Manager<SystemReady> = Manager()
     private let systemScanning: Manager<SystemScanning> = Manager()
     private let systemPeripherals: Manager<AvailablePeripherals> = Manager()
+    private let connectingPeripherals: Manager<ConnectedPeripherals> = Manager()
+    private let connectedPeripherals: Manager<ConnectedPeripherals> = Manager()
     
     // Actions
     fileprivate func onStateChange(_ state: CBManagerState) {
@@ -47,11 +53,29 @@ public final class BluetoothStack: ObservableObject {
             .execute()
     }
     
+    fileprivate func onConnectionEvent(_ connectionEvent: BluetoothCentralSession.ConnectionEvent) {
+        switch connectionEvent {
+        case .success(let peripheral):
+            if let registryItem = findAddresseeInRegistry(peripheral, forInstruction: .connecting) {
+                removeInRegistry(registryItem)
+            }
+            removeConnectingPeripheral(peripheral)
+            addConnectedPeripheral(peripheral)
+        case .failure(let connectionError):
+            if let registryItem = findAddresseeInRegistry(connectionError.peripheral, forInstruction: .connecting) {
+                removeInRegistry(registryItem)
+                registryItem.addressee?.onError(connectionError)
+            }
+        }
+    }
+    
     // Formatted Values
     private func configureFormattingForManagers() {
         BluetoothStack.formatForSystemReady(basedOn: systemState, toManager: systemReady)
         BluetoothStack.formatForSystemScanning(basedOn: systemRegister, toManager: systemScanning)
         BluetoothStack.formatForDiscoveredPeripherals(basedOn: systemDiscoveredPeripherals, toManager: systemPeripherals)
+        BluetoothStack.formatForConnectingPeripherals(basedOn: systemConnectingPeripherals, toManager: connectingPeripherals)
+        BluetoothStack.formatForConnectedPeripherals(basedOn: systemConnectedPeripherals, toManager: connectedPeripherals)
     }
     
     // Helpers
@@ -90,6 +114,41 @@ public final class BluetoothStack: ObservableObject {
                kernel: systemRegister)
             .execute()
     }
+    
+    fileprivate func findAddresseeInRegistry(_ peripheral: CBPeripheral, forInstruction instruction: StackRegister.Instruction) -> StackRegister? {
+        systemRegister
+            .currentValue?
+            .compactMap { $0 }
+            .filter { $0.hasPeripheralAddressee(peripheral) }
+            .compactMap { $0 }
+            .filter { $0.instruction == instruction }
+            .compactMap { $0 }
+            .last
+    }
+    
+    fileprivate func addConnectingPeripheral(_ peripheral: CBPeripheral) {
+        var connectingPeripherals = systemConnectingPeripherals.currentValue ?? []
+        connectingPeripherals.update(with: peripheral)
+        Action(connector: SetValueConnection(value: connectingPeripherals),
+               kernel: systemConnectingPeripherals)
+            .execute()
+    }
+    
+    fileprivate func removeConnectingPeripheral(_ peripheral: CBPeripheral) {
+        var connectingPeripherals = systemConnectingPeripherals.currentValue ?? []
+        connectingPeripherals.remove(peripheral)
+        Action(connector: SetValueConnection(value: connectingPeripherals),
+               kernel: systemConnectingPeripherals)
+            .execute()
+    }
+    
+    fileprivate func addConnectedPeripheral(_ peripheral: CBPeripheral) {
+        var connectedPeripherals = systemConnectedPeripherals.currentValue ?? []
+        connectedPeripherals.update(with: peripheral)
+        Action(connector: SetValueConnection(value: connectedPeripherals),
+               kernel: systemConnectedPeripherals)
+            .execute()
+    }
 }
 
 // MARK: - Public Interface
@@ -115,7 +174,8 @@ extension BluetoothStack {
     public func initializeSession(with configuration: SessionConfiguration) {
         centralSession = BluetoothCentralSession(with: configuration,
                                                  onStateChange: { [weak self] state in self?.onStateChange(state) },
-                                                 onPeripheralDiscovered: { [weak self] discoveredPeripheral in self?.onPeripheralDiscovery(discoveredPeripheral) })
+                                                 onPeripheralDiscovered: { [weak self] discoveredPeripheral in self?.onPeripheralDiscovery(discoveredPeripheral) },
+                                                 onConnectionEvent: { [weak self] connectionEvent in self?.onConnectionEvent(connectionEvent) })
     }
     
     /// A function to troubleshoot if a system is not `ready`
@@ -170,6 +230,35 @@ extension BluetoothStack {
             .$value
             .replaceNil(with: [])
             .eraseToAnyPublisher()
+    }
+    
+    // MARK: Connected Peripherals
+    /// A publisher that will emit `ConnectedPeripherals` values representing peripherals pending connection with the system
+    ///
+    /// This publisher is guaranteed to emit on the `Main` thread
+    public var connectingPeripheralsPublisher: AnyPublisher<ConnectedPeripherals, Never> {
+        connectingPeripherals
+            .$value
+            .replaceNil(with: [])
+            .eraseToAnyPublisher()
+    }
+    
+    /// A publisher that will emit `ConnectedPeripherals` values
+    ///
+    /// This publisher is guaranteed to emit on the `Main` thread
+    public var connectedPeripheralPublisher: AnyPublisher<ConnectedPeripherals, Never> {
+        connectedPeripherals
+            .$value
+            .replaceNil(with: [])
+            .eraseToAnyPublisher()
+    }
+    
+    /// A method that allows for the connection of a peripheral given a configuration
+    public func connectPeripheral(withConfiguration configuration: ConnectionConfiguration, onError: @escaping (Error) -> Void) {
+        let register = StackRegister.connectingRegister(forPeripheral: configuration.peripheral, onError: onError)
+        addConnectingPeripheral(configuration.peripheral)
+        insertInRegistry(register)
+        centralSession?.connectToPeripheral(connectionConfiguration: configuration)
     }
 }
 
@@ -243,5 +332,45 @@ extension BluetoothStack {
             .eraseToAnyPublisher()
         
         manager.whenFormattedValueReceived(from: peripheralSource)
+    }
+}
+
+extension BluetoothStack {
+    private static func connectingPeripherals(_ peripherals: ConnectedSystemPeripherals?) -> ConnectedPeripherals {
+        let connecting = peripherals ?? []
+        let items = Array(connecting)
+        return items
+    }
+    
+    fileprivate static var connectingPeripheralsFormat = Format(format: connectingPeripherals)
+    
+    fileprivate static func formatForConnectingPeripherals(basedOn connectingKernel: Kernel<ConnectedSystemPeripherals>, toManager manager: Manager<ConnectedPeripherals>) {
+        let source = connectingKernel
+            .whenValueUpdates()
+            .formatUsing(connectingPeripheralsFormat)
+            .map { Optional<ConnectedPeripherals>($0) }
+            .eraseToAnyPublisher()
+        
+        manager.whenFormattedValueReceived(from: source)
+    }
+}
+
+extension BluetoothStack {
+    private static func connectedPeripherals(_ peripherals: ConnectedSystemPeripherals?) -> ConnectedPeripherals {
+        let connected = peripherals ?? []
+        let items = Array(connected)
+        return items
+    }
+    
+    fileprivate static var connectedPeripheralsFormat = Format(format: connectedPeripherals)
+    
+    fileprivate static func formatForConnectedPeripherals(basedOn connectedKernel: Kernel<ConnectedSystemPeripherals>, toManager manager: Manager<ConnectedPeripherals>) {
+        let source = connectedKernel
+            .whenValueUpdates()
+            .formatUsing(connectedPeripheralsFormat)
+            .map { Optional<ConnectedPeripherals>($0) }
+            .eraseToAnyPublisher()
+        
+        manager.whenFormattedValueReceived(from: source)
     }
 }

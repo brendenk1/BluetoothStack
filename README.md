@@ -10,6 +10,9 @@ The goals of this system is:
 * Provide a simplified interface to troubleshoot the system
 * Provide a simplified interface to scan for peripherals with simplified error reporting
 * Provide a Combine interface for available peripherals to connect to
+* Provide a Combine interface to manage connected peripherals
+* Provide a Combine interface to monitor connecting peripherals
+* Provide a simplified interface to connect to a peripheral
 
 ## Components
 
@@ -31,6 +34,9 @@ In general the following steps are required when interacting with the stack:
 4. Monitor `systemScanningPublisher` for the scan status
 5. Perform `stopScanning(onError:)` to stop scanning for peripherals.
 6. Monitor `availablePeripheralPublisher` for the available peripherals discovered while scanning.
+7. Perform `connectPeripheral(withConfiguration: onError:)` to connect to a given peripheral with a configuration
+8. Monitor `connectingPeripheralsPublisher` for a current list of connecting peripherals
+9. Monitor `connectedPeripheralPublisher` for a current list of connected peripherals
 
 ```
 Initialize Stack ---------> Application UI
@@ -50,6 +56,11 @@ Initialize Stack ---------> Application UI
 |                           |
 |                           v
 |                           Stop Scan
+|                           |
+|                           |
+|                           v
+|                           Connect to Peripheral
+|
 |
 v
 Monitor system ready publisher
@@ -61,6 +72,14 @@ Monitor system scanning publisher
 |
 |
 Monitor available peripheral publisher
+|
+|
+|
+Monitor connecting peripheral publisher
+|
+|
+|
+Monitor connected peripheral publisher
 |
 |
 v
@@ -162,3 +181,31 @@ stack
         // availablePeripherals is a collection of discovered peripherals sorted by their RSSI values.
     }
 ```
+
+## Understanding Peripheral Connection
+
+Responding to peripherals the system is attempting to connect can be handled via the `connectingPeripheralPublisher` on the `BluetoothStack` object. This will provide a current list of peripherals that the system is attempting to establish a connection to. It is import to understand that the attempt to establish a connection to a peripheral will not time out, and thus will need to be handled via the application if desired.
+
+Responding to peripherals that are currently connected to the system can be handled via the `connectedPeripheralPublisher` on the `BluetoothStack` object. This will provide a list of currently connected peripheral objects.
+
+```
+let stack = BluetoothStack()
+
+stack
+    .connectingPeripheralPublisher
+    .sink { connectingPeripherals in 
+        // connectingPeripherals is a collection of peripheral currently being connected to
+    }
+    
+stack
+    .connectedPeripheralPublisher
+    .sink { connectedPeripherals in 
+        // connectedPeripherals is a collection of peripherals currently connected by the system
+    }
+```
+
+### Connecting to a Peripheral
+
+Connecting to a peripheral is accomplished by first creating a `ConnectionConfiguration` object. This object is responsible for setting basic connection settings for a given peripheral. The call the `connectPeripheral(withConfiguration: onError:)` method on `BluetoothStack` object. Success will be reported via the `connectedPeripheralPublisher` and an error will be reported via the `onError` parameter of the method. 
+
+Given connecting to a peripheral does not time out, errors thrown are generally transient and is best to attempt again.
