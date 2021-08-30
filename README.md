@@ -14,6 +14,7 @@ The goals of this system is:
 * Provide a Combine interface to monitor connecting peripherals
 * Provide a simplified interface to connect to a peripheral
 * Provide a interface to disconnect / cancel connection to peripheral
+* Provide a interface to reconnect a peripheral
 
 ## Components
 
