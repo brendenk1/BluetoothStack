@@ -82,6 +82,22 @@ extension BluetoothCentralSession {
             onDisconnectEvent(.success(peripheral))
         }
     }
+    
+    func knownPeripheral(withIdentifier identifier: UUID) -> CBPeripheral? {
+        centralManager?
+            .retrievePeripherals(withIdentifiers: [identifier])
+            .first(where: { $0.identifier == identifier })
+    }
+    
+    func connectedPeripheral(withServices identifiers: [CBUUID]) -> CBPeripheral? {
+        centralManager?
+            .retrieveConnectedPeripherals(withServices: identifiers)
+            .first(where: { peripheral in
+                let services = Set(peripheral.services ?? [])
+                let serviceIdentifiers = Set(services.map { $0.uuid })
+                return serviceIdentifiers.isSuperset(of: identifiers)
+            })
+    }
 }
 
 extension BluetoothCentralSession {

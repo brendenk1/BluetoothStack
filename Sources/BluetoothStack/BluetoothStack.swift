@@ -115,6 +115,11 @@ public final class BluetoothStack: ObservableObject {
         }
     }
     
+    fileprivate func checkRegistry(doesNotContainInstruction instruction: StackRegister.Instruction, forAddressee addressee: CBPeripheral) throws {
+        guard findAddresseeInRegistry(addressee, forInstruction: instruction) == nil
+        else { throw StackError.invalidInstruction }
+    }
+    
     fileprivate func checkRegistry(containsInstruction instruction: StackRegister.Instruction) throws {
         if systemRegister.currentValue?.contains(where: { $0.instruction == instruction }) == false {
             throw StackError.invalidInstruction
@@ -171,6 +176,15 @@ public final class BluetoothStack: ObservableObject {
         systemConnectingPeripherals
             .currentValue?
             .contains(peripheral) == true
+    }
+    
+    fileprivate func findPeripheralToReconnect(_ identifier: UUID, services: [CBUUID]) throws -> CBPeripheral {
+        if let knownPeripheral = centralSession?.knownPeripheral(withIdentifier: identifier) {
+            return knownPeripheral
+        } else if let systemConnectedPeripheral = centralSession?.connectedPeripheral(withServices: services) {
+            return systemConnectedPeripheral
+        }
+        throw StackError.unknownDevice
     }
     
     // MARK: Connected Peripherals
@@ -302,27 +316,54 @@ extension BluetoothStack {
     
     /// A method that allows for the connection of a peripheral given a configuration
     public func connectPeripheral(withConfiguration configuration: ConnectionConfiguration, onError: @escaping (Error) -> Void) {
-        let register = StackRegister.connectingRegister(forPeripheral: configuration.peripheral, onError: onError)
-        addConnectingPeripheral(configuration.peripheral)
-        insertInRegistry(register)
-        centralSession?.connectToPeripheral(connectionConfiguration: configuration)
+        do {
+            try verifySystemState()
+            try checkRegistry(doesNotContainInstruction: .connecting, forAddressee: configuration.peripheral)
+            let register = StackRegister.connectingRegister(forPeripheral: configuration.peripheral, onError: onError)
+            addConnectingPeripheral(configuration.peripheral)
+            insertInRegistry(register)
+            centralSession?.connectToPeripheral(connectionConfiguration: configuration)
+        } catch {
+            onError(error)
+        }
     }
     
     /// A method that allows for the canceling of a connection to a given peripheral
     public func cancelConnectionToPeripheral(_ peripheral: CBPeripheral, onError: @escaping (Error) -> Void) {
-        let disconnectRegistryEntry = StackRegister.disconnectingRegister(forPeripheral: peripheral, onError: onError)
-        if peripheralIsInConnecting(peripheral) {
-            removeConnectingPeripheral(peripheral)
-            insertInRegistry(disconnectRegistryEntry)
-            centralSession?.cancelConnection(toPeripheral: peripheral)
+        do {
+            try verifySystemState()
+            try checkRegistry(doesNotContainInstruction: .disconnecting, forAddressee: peripheral)
+            guard peripheralIsInConnected(peripheral) || peripheralIsInConnecting(peripheral)
+            else {
+                onError(StackError.unknownDevice)
+                return
+            }
+            
+            let disconnectRegistryEntry = StackRegister.disconnectingRegister(forPeripheral: peripheral, onError: onError)
+            if peripheralIsInConnecting(peripheral) {
+                removeConnectingPeripheral(peripheral)
+                insertInRegistry(disconnectRegistryEntry)
+                centralSession?.cancelConnection(toPeripheral: peripheral)
+            }
+            else if peripheralIsInConnected(peripheral) {
+                removeConnectedPeripheral(peripheral)
+                insertInRegistry(disconnectRegistryEntry)
+                centralSession?.cancelConnection(toPeripheral: peripheral)
+            }
+        } catch {
+            onError(error)
         }
-        else if peripheralIsInConnected(peripheral) {
-            removeConnectedPeripheral(peripheral)
-            insertInRegistry(disconnectRegistryEntry)
-            centralSession?.cancelConnection(toPeripheral: peripheral)
-        }
-        else {
-            onError(StackError.unknownDevice)
+    }
+    
+    /// A method that allows for the reconnecting to a perviously known peripheral
+    public func reconnectToPeripheral(withConfiguration configuration: ReconnectConfiguration, onError: @escaping (Error) -> Void) {
+        do {
+            try verifySystemState()
+            let peripheral = try findPeripheralToReconnect(configuration.peripheralIdentifier, services: configuration.peripheralServiceIdentifiers)
+            let connectConfiguration = configuration.createConnectionConfiguration(forPeripheral: peripheral)
+            connectPeripheral(withConfiguration: connectConfiguration, onError: onError)
+        } catch {
+            onError(error)
         }
     }
 }

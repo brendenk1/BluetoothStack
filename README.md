@@ -221,3 +221,40 @@ Given connecting to a peripheral does not time out, errors thrown are generally 
 Canceling a connection to a peripheral is accomplished by calling the `cancelConnectionToPeripheral(: onError:)` method on the `BluetoothStack` object. Success will be reported by the `connectedPeripheralPublisher` updating with a new list of currently connected peripherals, and an error will be reported via the `onError` parameter of the method.
 
 Canceling serves two important functions for a peripheral, first if a peripheral is currently pending a connection with the system this serves to stop the pending attempt, and second will disconnect the peripheral if a connection has been established. It is important to note that the iOS system manages connections to a given peripheral and not the application layer used by CoreBluetooth. Thus, canceling a connection is only from the perspective of the application layer and does not force a disconnect from the iOS system. 
+
+### Reconnecting to a Peripheral
+
+Reconnecting to a peripheral is accomplished by first creating a `ReconnectConfiguration` object. This object is responsible for setting basic connection settings for a given peripheral, and in addition required identifiers for identifying a peripheral to connect. Then call the `reconnectToPeripheral(withConfiguration: onError:)` method on `BluetoothStack` object. Success will be reported via the `connectedPeripheralPublisher` and an error will be reported via the `onError` parameter of the method. 
+
+In order to reconnect to a peripheral, two things are needed:
+
+1. The identifier assigned by CoreBluetooth for the peripheral
+2. The service identifiers needed on the peripheral
+
+Identifiers assigned to a device are managed by CoreBluetooth and are safe to persist between sessions on a single device.
+
+General methodology to reconnect a peripheral:
+
+```
++-
+|
+|   check for peripheral with identifier
+|   |
+|   |
+|   v
+|   is found    -->     connect (see connecting above)
+|   |
+|   |
+|   v
+|   check for any system peripherals with service identifiers
+|   |
+|   |
+|   v
+|   is found    -->     connect (see connecting above)
+|   |
+|   |
+|   v
+|   if none found throw unknown device error
+|
++-
+```
