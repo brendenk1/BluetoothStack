@@ -35,7 +35,7 @@ In general the following steps are required when interacting with the stack:
 4. Monitor `systemScanningPublisher` for the scan status
 5. Perform `stopScanning(onError:)` to stop scanning for peripherals.
 6. Monitor `availablePeripheralPublisher` for the available peripherals discovered while scanning.
-7. Perform `connectPeripheral(withConfiguration: onError:)` to connect to a given peripheral with a configuration
+7. Perform `connectPeripheral(withConfiguration: onError:)` to connect to a given peripheral with a configuration - or - `reconnectToPeripheral(withConfiguration: onError:)` to reconnect
 8. Monitor `connectingPeripheralsPublisher` for a current list of connecting peripherals
 9. Monitor `connectedPeripheralPublisher` for a current list of connected peripherals
 10. Perform `cancelConnectionToPeripheral(: onError:)` to cancel a connection to a peripheral
@@ -61,7 +61,7 @@ Initialize Stack ---------> Application UI
 |                           |
 |                           |
 |                           v
-|                           Connect to Peripheral
+|                           Connect to Peripheral / or Reconnect to Peripheral
 |                           |
 |                           |
 |                           v
