@@ -39,7 +39,8 @@ In general the following steps are required when interacting with the stack:
 7. Perform `connectPeripheral(withConfiguration: onError:)` to connect to a given peripheral with a configuration - or - `reconnectToPeripheral(withConfiguration: onError:)` to reconnect
 8. Monitor `connectingPeripheralsPublisher` for a current list of connecting peripherals
 9. Monitor `connectedPeripheralPublisher` for a current list of connected peripherals
-10. Perform `cancelConnectionToPeripheral(: onError:)` to cancel a connection to a peripheral
+10. Perform `path(forPeripheralIdentifier: serviceIdentifier: characteristicIdentifier:)` for a path to a characteristic on a given peripheral
+11. Perform `cancelConnectionToPeripheral(: onError:)` to cancel a connection to a peripheral
 
 ```
 Initialize Stack ---------> Application UI
@@ -63,6 +64,10 @@ Initialize Stack ---------> Application UI
 |                           |
 |                           v
 |                           Connect to Peripheral / or Reconnect to Peripheral
+|                           |
+|                           |
+|                           v
+|                           Interact with Characteristic
 |                           |
 |                           |
 |                           v
@@ -258,4 +263,20 @@ General methodology to reconnect a peripheral:
 |   if none found throw unknown device error
 |
 +-
+```
+
+### Paths
+
+Paths represent a characteristic for a given service on a peripheral. In order to interact with a characteristic CoreBluetooth requires a service and characteristic to be discovered. This is completed during the connection phase of the peripheral. Any errors on discovering a service or characteristic the error is reported via the `onError` parameter of the respective connection method.
+
+For ease of finding a discovered characteristic to interact with, call the `path(forPeripheralIdentifier: serviceIdentifier: characteristicIdentifier:)` on the `BluetoothStack` object to obtain the discovered `CBCharacteristic`.
+
+```
+let stack = BluetoothStack()
+do {
+    let path = stack.path(forPeripheralIdentifier: someIdentifier, serviceIdentifier: serviceIdentifier, characteristicIdentifier: identifier)
+    /// do something with path
+} catch {
+    /// error finding path
+}
 ```

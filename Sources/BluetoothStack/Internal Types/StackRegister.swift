@@ -13,6 +13,7 @@ struct StackRegister: Equatable {
     
     struct Addressee: Equatable {
         let peripheral: CBPeripheral
+        let connectionRoutes: ConnectionConfiguration.ConnectionRoutes?
         let onError: (Error) -> Void
         
         static func ==(_ lhs: Addressee, _ rhs: Addressee) -> Bool {
@@ -33,11 +34,11 @@ struct StackRegister: Equatable {
 extension StackRegister {
     static var scanningRegister: StackRegister = .init(instruction: .scanning, addressee: nil)
     
-    static func connectingRegister(forPeripheral peripheral: CBPeripheral, onError: @escaping (Error) -> Void) -> StackRegister {
-        StackRegister(instruction: .connecting, addressee: Addressee(peripheral: peripheral, onError: onError))
+    static func connectingRegister(forPeripheral peripheral: CBPeripheral, connectionRoutes: ConnectionConfiguration.ConnectionRoutes, onError: @escaping (Error) -> Void) -> StackRegister {
+        StackRegister(instruction: .connecting, addressee: Addressee(peripheral: peripheral, connectionRoutes: connectionRoutes, onError: onError))
     }
     
     static func disconnectingRegister(forPeripheral peripheral: CBPeripheral, onError: @escaping (Error) -> Void) -> StackRegister {
-        StackRegister(instruction: .disconnecting, addressee: Addressee(peripheral: peripheral, onError: onError))
+        StackRegister(instruction: .disconnecting, addressee: Addressee(peripheral: peripheral, connectionRoutes: nil, onError: onError))
     }
 }

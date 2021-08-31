@@ -2,8 +2,9 @@ import CoreBluetooth
 import Foundation
 
 public struct ReconnectConfiguration {
-    public init(peripheralIdentifier: UUID, peripheralServiceIdentifiers: [CBUUID], displayAlertOnBackgroundConnect: Bool, displayAlertOnBackgroundDisconnect: Bool, displayAlertOnNotificationReceived: Bool, bridgeToClassicBluetooth: Bool, connectionRequiresACNS: Bool, connectionStartDelay: Int) {
+    public init(peripheralIdentifier: UUID, connectionRoutes: ConnectionConfiguration.ConnectionRoutes, peripheralServiceIdentifiers: [CBUUID], displayAlertOnBackgroundConnect: Bool, displayAlertOnBackgroundDisconnect: Bool, displayAlertOnNotificationReceived: Bool, bridgeToClassicBluetooth: Bool, connectionRequiresACNS: Bool, connectionStartDelay: Int) {
         self.peripheralIdentifier = peripheralIdentifier
+        self.connectionRoutes = connectionRoutes
         self.peripheralServiceIdentifiers = peripheralServiceIdentifiers
         self.displayAlertOnBackgroundConnect = displayAlertOnBackgroundConnect
         self.displayAlertOnBackgroundDisconnect = displayAlertOnBackgroundDisconnect
@@ -15,6 +16,8 @@ public struct ReconnectConfiguration {
     
     /// The identifier for the peripheral that would like to reconnect
     let peripheralIdentifier: UUID
+    /// The connection routes needed for the peripheral
+    let connectionRoutes: ConnectionConfiguration.ConnectionRoutes
     /// The services provided by a device to look for
     let peripheralServiceIdentifiers: [CBUUID]
     /// A Boolean value that specifies whether the system should display an alert when connecting a peripheral in the background.
@@ -34,6 +37,7 @@ public struct ReconnectConfiguration {
 extension ReconnectConfiguration {
     func createConnectionConfiguration(forPeripheral peripheral: CBPeripheral) -> ConnectionConfiguration {
         ConnectionConfiguration(peripheral: peripheral,
+                                connectionRoutes: connectionRoutes,
                                 displayAlertOnBackgroundConnect: displayAlertOnBackgroundConnect,
                                 displayAlertOnBackgroundDisconnect: displayAlertOnBackgroundDisconnect,
                                 displayAlertOnNotificationReceived: displayAlertOnNotificationReceived,

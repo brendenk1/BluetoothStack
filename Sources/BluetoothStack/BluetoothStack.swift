@@ -6,8 +6,9 @@ import Synthesis
 /// An object responsible for managing the `Bluetooth` stack
 ///
 /// Currently the stack is only designed for `Central` management and does not support background modes.
-public final class BluetoothStack: ObservableObject {
-    public init() {
+public final class BluetoothStack: NSObject, ObservableObject {
+    public override init() {
+        super.init()
         configureFormattingForManagers()
     }
     
@@ -17,12 +18,14 @@ public final class BluetoothStack: ObservableObject {
     public typealias SystemScanning = Bool
     public typealias AvailablePeripherals = Array<DiscoveredPeripheral>
     public typealias ConnectedPeripherals = Array<CBPeripheral>
+    public typealias KnownPaths = Array<KnownPath>
     
     fileprivate typealias DiscoveredPeripherals = Set<DiscoveredPeripheral>
     fileprivate typealias ConnectedSystemPeripherals = Set<CBPeripheral>
     fileprivate typealias Registry = Array<StackRegister>
     
     private var centralSession: BluetoothCentralSession?
+    private var connectionSubscriptions = Set<AnyCancellable>()
     
     // Kernels
     private let systemState: Kernel<CBManagerState> = Kernel()
@@ -30,6 +33,7 @@ public final class BluetoothStack: ObservableObject {
     private let systemDiscoveredPeripherals: Kernel<DiscoveredPeripherals> = Kernel()
     private let systemConnectingPeripherals: Kernel<ConnectedSystemPeripherals> = Kernel()
     private let systemConnectedPeripherals: Kernel<ConnectedSystemPeripherals> = Kernel()
+    private let systemPaths: Kernel<KnownPaths> = Kernel()
     
     // Managers
     private let systemReady: Manager<SystemReady> = Manager()
@@ -57,10 +61,23 @@ public final class BluetoothStack: ObservableObject {
         switch connectionEvent {
         case .success(let peripheral):
             if let registryItem = findAddresseeInRegistry(peripheral, forInstruction: .connecting) {
-                removeInRegistry(registryItem)
+                let discovery = PeripheralPathDiscoverer(forPeripheral: peripheral)
+                discovery.discoverPaths(forConfiguration: registryItem.addressee?.connectionRoutes)
+                    .sink(receiveCompletion: { [unowned self] completion in
+                        if case let .failure(error) = completion {
+                            removeInRegistry(registryItem)
+                            registryItem.addressee?.onError(error)
+                            cancelConnectionToPeripheral(peripheral, onError: registryItem.addressee?.onError ?? { _ in })
+                        }
+                    },
+                          receiveValue: { [unowned self] paths in
+                        removeInRegistry(registryItem)
+                        removeConnectingPeripheral(peripheral)
+                        addConnectedPeripheral(peripheral)
+                        addPaths(paths)
+                    })
+                    .store(in: &connectionSubscriptions)
             }
-            removeConnectingPeripheral(peripheral)
-            addConnectedPeripheral(peripheral)
         case .failure(let connectionError):
             if let registryItem = findAddresseeInRegistry(connectionError.peripheral, forInstruction: .connecting) {
                 removeInRegistry(registryItem)
@@ -78,6 +95,7 @@ public final class BluetoothStack: ObservableObject {
             if let disconnectRegistryItem = findAddresseeInRegistry(peripheral, forInstruction: .disconnecting) {
                 removeInRegistry(disconnectRegistryItem)
             }
+            clearPaths(forPeripheral: peripheral)
         case .failure(let disconnectionError):
             if let connectionRegistryItem = findAddresseeInRegistry(disconnectionError.peripheral, forInstruction: .connecting) {
                 removeInRegistry(connectionRegistryItem)
@@ -87,6 +105,7 @@ public final class BluetoothStack: ObservableObject {
                 removeInRegistry(disconnectRegistryItem)
                 disconnectRegistryItem.addressee?.onError(disconnectionError)
             }
+            clearPaths(forPeripheral: disconnectionError.peripheral)
         }
     }
     
@@ -209,6 +228,28 @@ public final class BluetoothStack: ObservableObject {
             .currentValue?
             .contains(peripheral) == true
     }
+    
+    // MARK: Paths
+    fileprivate func addPaths(_ paths: [KnownPath]) {
+        var currentPaths = systemPaths.currentValue ?? []
+        currentPaths.append(contentsOf: paths)
+        Action(connector: SetValueConnection(value: currentPaths),
+               kernel: systemPaths)
+            .execute()
+    }
+    
+    fileprivate func clearPaths(forPeripheral peripheral: CBPeripheral) {
+        var currentPaths = systemPaths.currentValue ?? []
+        let pathsForPeripheral = currentPaths.filter { $0.peripheral == peripheral }
+        pathsForPeripheral.forEach { path in
+            if let index = currentPaths.firstIndex(of: path) {
+                currentPaths.remove(at: index)
+            }
+        }
+        Action(connector: SetValueConnection(value: currentPaths),
+               kernel: systemPaths)
+            .execute()
+    }
 }
 
 // MARK: - Public Interface
@@ -315,11 +356,11 @@ extension BluetoothStack {
     }
     
     /// A method that allows for the connection of a peripheral given a configuration
-    public func connectPeripheral(withConfiguration configuration: ConnectionConfiguration, onError: @escaping (Error) -> Void) {
+    public func connectPeripheral(withConfiguration configuration: ConnectionConfiguration, onError: @escaping WhenError) {
         do {
             try verifySystemState()
             try checkRegistry(doesNotContainInstruction: .connecting, forAddressee: configuration.peripheral)
-            let register = StackRegister.connectingRegister(forPeripheral: configuration.peripheral, onError: onError)
+            let register = StackRegister.connectingRegister(forPeripheral: configuration.peripheral, connectionRoutes: configuration.connectionRoutes, onError: onError)
             addConnectingPeripheral(configuration.peripheral)
             insertInRegistry(register)
             centralSession?.connectToPeripheral(connectionConfiguration: configuration)
@@ -329,7 +370,7 @@ extension BluetoothStack {
     }
     
     /// A method that allows for the canceling of a connection to a given peripheral
-    public func cancelConnectionToPeripheral(_ peripheral: CBPeripheral, onError: @escaping (Error) -> Void) {
+    public func cancelConnectionToPeripheral(_ peripheral: CBPeripheral, onError: @escaping WhenError) {
         do {
             try verifySystemState()
             try checkRegistry(doesNotContainInstruction: .disconnecting, forAddressee: peripheral)
@@ -356,7 +397,7 @@ extension BluetoothStack {
     }
     
     /// A method that allows for the reconnecting to a perviously known peripheral
-    public func reconnectToPeripheral(withConfiguration configuration: ReconnectConfiguration, onError: @escaping (Error) -> Void) {
+    public func reconnectToPeripheral(withConfiguration configuration: ReconnectConfiguration, onError: @escaping WhenError) {
         do {
             try verifySystemState()
             let peripheral = try findPeripheralToReconnect(configuration.peripheralIdentifier, services: configuration.peripheralServiceIdentifiers)
@@ -365,6 +406,20 @@ extension BluetoothStack {
         } catch {
             onError(error)
         }
+    }
+    
+    /// A method that allows for the finding of paths for services and characteristics on a given peripheral
+    public func path(forPeripheralIdentifier peripheral: UUID, serviceIdentifier service: CBUUID, characteristicIdentifier characteristic: CBUUID) throws -> CBCharacteristic {
+        let foundPath = systemPaths
+            .currentValue?
+            .filter { $0.pathFor(peripheral, service: service, characteristic: characteristic) }
+            .first
+            .map { $0.characteristic }
+        guard let foundPath = foundPath
+        else {
+            throw StackError.unknownPath
+        }
+        return foundPath
     }
 }
 

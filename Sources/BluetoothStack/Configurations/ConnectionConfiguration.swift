@@ -2,8 +2,13 @@ import CoreBluetooth
 import Foundation
 
 public struct ConnectionConfiguration {
-    public init(peripheral: CBPeripheral, displayAlertOnBackgroundConnect: Bool, displayAlertOnBackgroundDisconnect: Bool, displayAlertOnNotificationReceived: Bool, bridgeToClassicBluetooth: Bool, connectionRequiresACNS: Bool, connectionStartDelay: Int) {
+    public typealias Service = CBUUID
+    public typealias Characteristic = CBUUID
+    public typealias ConnectionRoutes = [Service: [Characteristic]]
+    
+    public init(peripheral: CBPeripheral, connectionRoutes: ConnectionRoutes, displayAlertOnBackgroundConnect: Bool, displayAlertOnBackgroundDisconnect: Bool, displayAlertOnNotificationReceived: Bool, bridgeToClassicBluetooth: Bool, connectionRequiresACNS: Bool, connectionStartDelay: Int) {
         self.peripheral = peripheral
+        self.connectionRoutes = connectionRoutes
         self.displayAlertOnBackgroundConnect = displayAlertOnBackgroundConnect
         self.displayAlertOnBackgroundDisconnect = displayAlertOnBackgroundDisconnect
         self.displayAlertOnNotificationReceived = displayAlertOnNotificationReceived
@@ -14,6 +19,8 @@ public struct ConnectionConfiguration {
     
     /// The device to connect to
     let peripheral: CBPeripheral
+    /// The route to discover on the device
+    let connectionRoutes: ConnectionRoutes
     /// A Boolean value that specifies whether the system should display an alert when connecting a peripheral in the background.
     let displayAlertOnBackgroundConnect: Bool
     /// A Boolean value that specifies whether the system should display an alert when disconnecting a peripheral in the background.
@@ -27,8 +34,9 @@ public struct ConnectionConfiguration {
     /// An option that indicates a delay before the system makes a connection. (In seconds)
     let connectionStartDelay: Int
     
-    public static func standardConfiguration(forPeripheral peripheral: CBPeripheral) -> ConnectionConfiguration {
+    public static func standardConfiguration(forPeripheral peripheral: CBPeripheral, connectionRoutes: ConnectionRoutes) -> ConnectionConfiguration {
         ConnectionConfiguration(peripheral: peripheral,
+                                connectionRoutes: connectionRoutes,
                                 displayAlertOnBackgroundConnect: false,
                                 displayAlertOnBackgroundDisconnect: false,
                                 displayAlertOnNotificationReceived: false,
