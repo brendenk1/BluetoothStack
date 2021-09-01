@@ -25,6 +25,7 @@ public final class BluetoothStack: NSObject, ObservableObject {
     fileprivate typealias Registry = Array<StackRegister>
     
     private var centralSession: BluetoothCentralSession?
+    private var discoveries = Set<PeripheralPathDiscoverer>()
     private var connectionSubscriptions = Set<AnyCancellable>()
     
     // Kernels
@@ -75,8 +76,10 @@ public final class BluetoothStack: NSObject, ObservableObject {
                         removeConnectingPeripheral(peripheral)
                         addConnectedPeripheral(peripheral)
                         addPaths(paths)
+                        discoveries.remove(discovery)
                     })
                     .store(in: &connectionSubscriptions)
+                discoveries.insert(discovery)
             }
         case .failure(let connectionError):
             if let registryItem = findAddresseeInRegistry(connectionError.peripheral, forInstruction: .connecting) {
