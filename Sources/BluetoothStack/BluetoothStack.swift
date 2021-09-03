@@ -72,11 +72,11 @@ public final class BluetoothStack: NSObject, ObservableObject {
                         }
                     },
                           receiveValue: { [unowned self] paths in
+                        addPaths(paths)
+                        discoveries.remove(discovery)
                         removeInRegistry(registryItem)
                         removeConnectingPeripheral(peripheral)
                         addConnectedPeripheral(peripheral)
-                        addPaths(paths)
-                        discoveries.remove(discovery)
                     })
                     .store(in: &connectionSubscriptions)
                 discoveries.insert(discovery)
