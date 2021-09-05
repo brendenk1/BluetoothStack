@@ -18,7 +18,7 @@ let package = Package(
             targets: ["BluetoothStack"]),
     ],
     dependencies: [
-        .package(name: "Synthesis", url: "https://github.com/brendenk1/Synthesis", .upToNextMajor(from: "1.5.0"))
+        .package(name: "Synthesis", url: "https://github.com/brendenk1/Synthesis", .upToNextMajor(from: "2.0.0"))
     ],
     targets: [
         .target(

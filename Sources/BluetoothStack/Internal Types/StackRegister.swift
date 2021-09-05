@@ -1,7 +1,7 @@
 import Foundation
 import CoreBluetooth
 
-struct StackRegister: Equatable {
+struct StackRegister: Equatable, Hashable {
     let instruction: Instruction
     let addressee: Addressee?
     
@@ -11,10 +11,14 @@ struct StackRegister: Equatable {
         case disconnecting
     }
     
-    struct Addressee: Equatable {
+    struct Addressee: Equatable, Hashable {
         let peripheral: CBPeripheral
         let connectionRoutes: ConnectionConfiguration.ConnectionRoutes?
         let onError: (Error) -> Void
+        
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(peripheral)
+        }
         
         static func ==(_ lhs: Addressee, _ rhs: Addressee) -> Bool {
             lhs.peripheral.identifier == rhs.peripheral.identifier

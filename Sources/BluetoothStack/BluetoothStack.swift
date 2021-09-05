@@ -28,9 +28,11 @@ public final class BluetoothStack: NSObject, ObservableObject {
     private var discoveries = Set<PeripheralPathDiscoverer>()
     private var connectionSubscriptions = Set<AnyCancellable>()
     
+    // Register
+    private let register: Register<StackRegister> = Register()
+    
     // Kernels
     private let systemState: Kernel<CBManagerState> = Kernel()
-    private let systemRegister: Kernel<Registry> = Kernel()
     private let systemDiscoveredPeripherals: Kernel<DiscoveredPeripherals> = Kernel()
     private let systemConnectingPeripherals: Kernel<ConnectedSystemPeripherals> = Kernel()
     private let systemConnectedPeripherals: Kernel<ConnectedSystemPeripherals> = Kernel()
@@ -45,7 +47,7 @@ public final class BluetoothStack: NSObject, ObservableObject {
     
     // Actions
     fileprivate func onStateChange(_ state: CBManagerState) {
-        Action(connector: SetValueConnection(value: state),
+        Action(connector: SetValueConnector(value: state),
                kernel: systemState)
             .execute()
     }
@@ -53,20 +55,21 @@ public final class BluetoothStack: NSObject, ObservableObject {
     fileprivate func onPeripheralDiscovery(_ discoveredPeripheral: DiscoveredPeripheral) {
         var discoveredPeripherals = systemDiscoveredPeripherals.currentValue ?? Set()
         discoveredPeripherals.update(with: discoveredPeripheral)
-        Action(connector: SetValueConnection(value: discoveredPeripherals),
+        Action(connector: SetValueConnector(value: discoveredPeripherals),
                kernel: systemDiscoveredPeripherals)
             .execute()
     }
     
     fileprivate func onConnectionEvent(_ connectionEvent: BluetoothCentralSession.ConnectionEvent) {
-        switch connectionEvent {
-        case .success(let peripheral):
-            if let registryItem = findAddresseeInRegistry(peripheral, forInstruction: .connecting) {
+        do {
+            switch connectionEvent {
+            case .success(let peripheral):
+                let registryItem = try findAddresseeInRegistry(peripheral, forInstruction: .connecting)
                 let discovery = PeripheralPathDiscoverer(forPeripheral: peripheral)
                 discovery.discoverPaths(forConfiguration: registryItem.addressee?.connectionRoutes)
                     .sink(receiveCompletion: { [unowned self] completion in
                         if case let .failure(error) = completion {
-                            removeInRegistry(registryItem)
+                            register.removeFromRegister(element: registryItem)
                             registryItem.addressee?.onError(error)
                             cancelConnectionToPeripheral(peripheral, onError: registryItem.addressee?.onError ?? { _ in })
                         }
@@ -74,38 +77,40 @@ public final class BluetoothStack: NSObject, ObservableObject {
                           receiveValue: { [unowned self] paths in
                         addPaths(paths)
                         discoveries.remove(discovery)
-                        removeInRegistry(registryItem)
+                        register.removeFromRegister(element: registryItem)
                         removeConnectingPeripheral(peripheral)
                         addConnectedPeripheral(peripheral)
                     })
                     .store(in: &connectionSubscriptions)
                 discoveries.insert(discovery)
-            }
-        case .failure(let connectionError):
-            if let registryItem = findAddresseeInRegistry(connectionError.peripheral, forInstruction: .connecting) {
-                removeInRegistry(registryItem)
+            case .failure(let connectionError):
+                let registryItem = try findAddresseeInRegistry(connectionError.peripheral, forInstruction: .connecting)
+                register.removeFromRegister(element: registryItem)
                 registryItem.addressee?.onError(connectionError)
             }
+        } catch {
+            print("*** API MISUSE \(error)")
         }
+        
     }
     
     fileprivate func onDisconnectionEvent(_ disconnectionEvent: BluetoothCentralSession.DisconnectionEvent) {
         switch disconnectionEvent {
         case .success(let peripheral):
-            if let connectionRegistryItem = findAddresseeInRegistry(peripheral, forInstruction: .connecting) {
-                removeInRegistry(connectionRegistryItem)
+            if let connectionRegistryItem = try? findAddresseeInRegistry(peripheral, forInstruction: .connecting) {
+                register.removeFromRegister(element: connectionRegistryItem)
             }
-            if let disconnectRegistryItem = findAddresseeInRegistry(peripheral, forInstruction: .disconnecting) {
-                removeInRegistry(disconnectRegistryItem)
+            if let disconnectRegistryItem = try? findAddresseeInRegistry(peripheral, forInstruction: .disconnecting) {
+                register.removeFromRegister(element: disconnectRegistryItem)
             }
             clearPaths(forPeripheral: peripheral)
         case .failure(let disconnectionError):
-            if let connectionRegistryItem = findAddresseeInRegistry(disconnectionError.peripheral, forInstruction: .connecting) {
-                removeInRegistry(connectionRegistryItem)
+            if let connectionRegistryItem = try? findAddresseeInRegistry(disconnectionError.peripheral, forInstruction: .connecting) {
+                register.removeFromRegister(element: connectionRegistryItem)
                 connectionRegistryItem.addressee?.onError(disconnectionError)
             }
-            if let disconnectRegistryItem = findAddresseeInRegistry(disconnectionError.peripheral, forInstruction: .disconnecting) {
-                removeInRegistry(disconnectRegistryItem)
+            if let disconnectRegistryItem = try? findAddresseeInRegistry(disconnectionError.peripheral, forInstruction: .disconnecting) {
+                register.removeFromRegister(element: disconnectRegistryItem)
                 disconnectRegistryItem.addressee?.onError(disconnectionError)
             }
             clearPaths(forPeripheral: disconnectionError.peripheral)
@@ -115,7 +120,7 @@ public final class BluetoothStack: NSObject, ObservableObject {
     // Formatted Values
     private func configureFormattingForManagers() {
         BluetoothStack.formatForSystemReady(basedOn: systemState, toManager: systemReady)
-        BluetoothStack.formatForSystemScanning(basedOn: systemRegister, toManager: systemScanning)
+        BluetoothStack.formatForSystemScanning(basedOn: register, toManager: systemScanning)
         BluetoothStack.formatForDiscoveredPeripherals(basedOn: systemDiscoveredPeripherals, toManager: systemPeripherals)
         BluetoothStack.formatForConnectingPeripherals(basedOn: systemConnectingPeripherals, toManager: connectingPeripherals)
         BluetoothStack.formatForConnectedPeripherals(basedOn: systemConnectedPeripherals, toManager: connectedPeripherals)
@@ -132,56 +137,35 @@ public final class BluetoothStack: NSObject, ObservableObject {
     
     // MARK: Registry
     fileprivate func checkRegistry(doesNotContainInstruction instruction: StackRegister.Instruction) throws {
-        if systemRegister.currentValue?.contains(where: { $0.instruction == instruction }) == true {
-            throw StackError.invalidInstruction
-        }
-    }
-    
-    fileprivate func checkRegistry(doesNotContainInstruction instruction: StackRegister.Instruction, forAddressee addressee: CBPeripheral) throws {
-        guard findAddresseeInRegistry(addressee, forInstruction: instruction) == nil
+        guard register.contains(byMatching: { $0.instruction == instruction }) == false
         else { throw StackError.invalidInstruction }
     }
-    
+
+    fileprivate func checkRegistry(doesNotContainInstruction instruction: StackRegister.Instruction, forAddressee addressee: CBPeripheral) throws {
+        guard register.contains(byMatching: { item in
+            item.hasPeripheralAddressee(addressee) &&
+            item.instruction == instruction
+        }) == false
+        else { throw StackError.invalidInstruction }
+    }
+
     fileprivate func checkRegistry(containsInstruction instruction: StackRegister.Instruction) throws {
-        if systemRegister.currentValue?.contains(where: { $0.instruction == instruction }) == false {
-            throw StackError.invalidInstruction
-        }
+        guard register.contains(byMatching: { $0.instruction == instruction })
+        else { throw StackError.invalidInstruction }
     }
-    
-    fileprivate func insertInRegistry(_ item: StackRegister) {
-        var registry = systemRegister.currentValue ?? []
-        registry.append(item)
-        Action(connector: SetValueConnection(value: registry),
-               kernel: systemRegister)
-            .execute()
-    }
-    
-    fileprivate func removeInRegistry(_ item: StackRegister) {
-        var registry = systemRegister.currentValue
-        if let index = registry?.firstIndex(where: { $0 == item }) {
-            registry?.remove(at: index)
-        }
-        Action(connector: SetValueConnection(value: registry),
-               kernel: systemRegister)
-            .execute()
-    }
-    
-    fileprivate func findAddresseeInRegistry(_ peripheral: CBPeripheral, forInstruction instruction: StackRegister.Instruction) -> StackRegister? {
-        systemRegister
-            .currentValue?
-            .compactMap { $0 }
-            .filter { $0.hasPeripheralAddressee(peripheral) }
-            .compactMap { $0 }
-            .filter { $0.instruction == instruction }
-            .compactMap { $0 }
-            .last
+
+    fileprivate func findAddresseeInRegistry(_ peripheral: CBPeripheral, forInstruction instruction: StackRegister.Instruction) throws -> StackRegister {
+        try register.findRegistryItem(byMatching: { item in
+            item.hasPeripheralAddressee(peripheral) &&
+            item.instruction == instruction
+        })
     }
     
     // MARK: Connecting Peripherals
     fileprivate func addConnectingPeripheral(_ peripheral: CBPeripheral) {
         var connectingPeripherals = systemConnectingPeripherals.currentValue ?? []
         connectingPeripherals.update(with: peripheral)
-        Action(connector: SetValueConnection(value: connectingPeripherals),
+        Action(connector: SetValueConnector(value: connectingPeripherals),
                kernel: systemConnectingPeripherals)
             .execute()
     }
@@ -189,7 +173,7 @@ public final class BluetoothStack: NSObject, ObservableObject {
     fileprivate func removeConnectingPeripheral(_ peripheral: CBPeripheral) {
         var connectingPeripherals = systemConnectingPeripherals.currentValue ?? []
         connectingPeripherals.remove(peripheral)
-        Action(connector: SetValueConnection(value: connectingPeripherals),
+        Action(connector: SetValueConnector(value: connectingPeripherals),
                kernel: systemConnectingPeripherals)
             .execute()
     }
@@ -213,7 +197,7 @@ public final class BluetoothStack: NSObject, ObservableObject {
     fileprivate func addConnectedPeripheral(_ peripheral: CBPeripheral) {
         var connectedPeripherals = systemConnectedPeripherals.currentValue ?? []
         connectedPeripherals.update(with: peripheral)
-        Action(connector: SetValueConnection(value: connectedPeripherals),
+        Action(connector: SetValueConnector(value: connectedPeripherals),
                kernel: systemConnectedPeripherals)
             .execute()
     }
@@ -221,7 +205,7 @@ public final class BluetoothStack: NSObject, ObservableObject {
     fileprivate func removeConnectedPeripheral(_ peripheral: CBPeripheral) {
         var connectedPeripherals = systemConnectedPeripherals.currentValue ?? []
         connectedPeripherals.remove(peripheral)
-        Action(connector: SetValueConnection(value: connectedPeripherals),
+        Action(connector: SetValueConnector(value: connectedPeripherals),
                kernel: systemConnectedPeripherals)
             .execute()
     }
@@ -236,7 +220,7 @@ public final class BluetoothStack: NSObject, ObservableObject {
     fileprivate func addPaths(_ paths: [KnownPath]) {
         var currentPaths = systemPaths.currentValue ?? []
         currentPaths.append(contentsOf: paths)
-        Action(connector: SetValueConnection(value: currentPaths),
+        Action(connector: SetValueConnector(value: currentPaths),
                kernel: systemPaths)
             .execute()
     }
@@ -249,7 +233,7 @@ public final class BluetoothStack: NSObject, ObservableObject {
                 currentPaths.remove(at: index)
             }
         }
-        Action(connector: SetValueConnection(value: currentPaths),
+        Action(connector: SetValueConnector(value: currentPaths),
                kernel: systemPaths)
             .execute()
     }
@@ -307,7 +291,7 @@ extension BluetoothStack {
         do {
             try verifySystemState()
             try checkRegistry(doesNotContainInstruction: .scanning)
-            insertInRegistry(.scanningRegister)
+            register.updateRegister(withElement: .scanningRegister)
             centralSession?.startScanning(for: configuration)
         } catch {
             onError(error)
@@ -319,7 +303,7 @@ extension BluetoothStack {
         do {
             try checkRegistry(containsInstruction: .scanning)
             centralSession?.stopScanning()
-            removeInRegistry(.scanningRegister)
+            register.removeFromRegister(element: .scanningRegister)
         } catch {
             onError(error)
         }
@@ -363,9 +347,9 @@ extension BluetoothStack {
         do {
             try verifySystemState()
             try checkRegistry(doesNotContainInstruction: .connecting, forAddressee: configuration.peripheral)
-            let register = StackRegister.connectingRegister(forPeripheral: configuration.peripheral, connectionRoutes: configuration.connectionRoutes, onError: onError)
+            let registryItem = StackRegister.connectingRegister(forPeripheral: configuration.peripheral, connectionRoutes: configuration.connectionRoutes, onError: onError)
             addConnectingPeripheral(configuration.peripheral)
-            insertInRegistry(register)
+            register.updateRegister(withElement: registryItem)
             centralSession?.connectToPeripheral(connectionConfiguration: configuration)
         } catch {
             onError(error)
@@ -386,12 +370,12 @@ extension BluetoothStack {
             let disconnectRegistryEntry = StackRegister.disconnectingRegister(forPeripheral: peripheral, onError: onError)
             if peripheralIsInConnecting(peripheral) {
                 removeConnectingPeripheral(peripheral)
-                insertInRegistry(disconnectRegistryEntry)
+                register.updateRegister(withElement: disconnectRegistryEntry)
                 centralSession?.cancelConnection(toPeripheral: peripheral)
             }
             else if peripheralIsInConnected(peripheral) {
                 removeConnectedPeripheral(peripheral)
-                insertInRegistry(disconnectRegistryEntry)
+                register.updateRegister(withElement: disconnectRegistryEntry)
                 centralSession?.cancelConnection(toPeripheral: peripheral)
             }
         } catch {
@@ -426,23 +410,6 @@ extension BluetoothStack {
     }
 }
 
-// MARK: - Connections
-extension BluetoothStack {
-    struct SetValueConnection<Value>: Connector
-    where Value: Equatable
-    {
-        typealias Element = Value
-        
-        let value: Value?
-        
-        func connect() -> Output {
-            Just(value)
-                .setFailureType(to: Error.self)
-                .eraseToAnyPublisher()
-        }
-    }
-}
-
 // MARK: - Formatters
 extension BluetoothStack {
     private static func systemReady(from state: CBManagerState?) -> SystemReady {
@@ -463,15 +430,15 @@ extension BluetoothStack {
 }
 
 extension BluetoothStack {
-    private static func systemScanning(from registry: [StackRegister]?) -> SystemScanning {
-        registry?.contains(where: { $0.instruction == .scanning }) == true
+    private static func systemScanning(from registry: [StackRegister]) -> SystemScanning {
+        registry.contains(where: { $0.instruction == .scanning }) == true
     }
     
     fileprivate static var systemScanningFormat = Format(format: systemScanning)
     
-    fileprivate static func formatForSystemScanning(basedOn registryKernel: Kernel<Registry>, toManager manager: Manager<SystemScanning>) {
-        let systemScanningSource = registryKernel
-            .whenValueUpdates()
+    fileprivate static func formatForSystemScanning(basedOn registry: Register<StackRegister>, toManager manager: Manager<SystemScanning>) {
+        let systemScanningSource = registry
+            .publisher
             .formatUsing(BluetoothStack.systemScanningFormat)
             .map { Optional<SystemScanning>($0) }
             .eraseToAnyPublisher()
