@@ -19,7 +19,7 @@ final class BluetoothCentralSession: NSObject {
         self.onConnectionEvent = onConnectionEvent
         self.onDisconnectEvent = onDisconnectEvent
         super.init()
-        self.centralManager = CBCentralManager(delegate: self, queue: .global(qos: .background), options: configuration.options)
+        self.centralManager = CBCentralManager(delegate: self, queue: .global(qos: .userInitiated), options: configuration.options)
     }
     
     private var centralManager: CBCentralManager?
